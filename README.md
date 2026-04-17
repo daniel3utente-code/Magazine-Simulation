@@ -1,27 +1,85 @@
-# Multithreaded Warehouse Management System
-
-This project implements a multithreaded warehouse management system in C, simulating a production line where items are generated, quality-checked, and logged asynchronously.The software utilizes POSIX threads (pthreads) and synchronization mechanisms to manage a shared circular buffer.
-
+# Warehouse Management System Simulation (C & POSIX Threads)
+ 
+This project simulates a **real-time production line** in C, where items are generated, quality-checked, and logged asynchronously using three concurrent POSIX threads communicating through a shared circular buffer.
+ 
+---
+ 
 ## System Overview
-The system is divided into three specialized threads operating in parallel:
-
-* **Producer Thread**: Creates a new product every 2 seconds, assigning it an incremental ID and a random quality value. It then inserts the piece into a shared buffer
-* **Quality Control Thread**: Extracts products from the buffer and verifies their quality. If the quality is above 50, the product is sent to the log thread; otherwise, the memory is immediately freed.
-* **Log Writer Thread**: Receives products that have passed the quality check and writes their data (ID and Quality) into the `magazzino.log` file in CSV format.
-
+ 
+Three specialized threads run in parallel, coordinated through mutexes and condition variables:
+ 
+- **Producer Thread** — Creates a new product every 2 seconds, assigning it an incremental ID and a random quality value (0–99), then inserts it into the shared circular buffer.
+- **Quality Control Thread** — Extracts products from the buffer and checks their quality. Products scoring above 50 are passed to the log thread; the rest are immediately freed from memory.
+- **Log Writer Thread** — Receives approved products and writes their ID and quality to `magazzino.log` in CSV format.
+---
+ 
 ## Key Features
-* **Synchronization**: Uses `pthread_mutex_t` for exclusive access to the buffer and `pthread_cond_t` (condition variables) to manage "buffer full" or "buffer empty" signals between threads.
-* **Signal Handling**: Includes a handler for `SIGINT` (CTRL+C) that gracefully stops the threads via a broadcast on the condition variables, ensuring all resources are properly freed.
-* **Circular Buffer**: Implements a FIFO-type buffer with a fixed size (`DIM_BUFFER = 10`) for communication between the producer and consumer.
-* **Memory Management**: Uses dynamic allocation for products, guaranteeing that each item is removed from memory (free) once processed or upon program termination.
-
+ 
+- **Circular Buffer** — Fixed-size FIFO buffer (`DIM_BUFFER = 10`) for thread-safe communication between producer and consumer.
+- **Synchronization** — Uses `pthread_mutex_t` for exclusive buffer access and three `pthread_cond_t` condition variables (`notEmpty`, `notFull`, `validProduct`) to coordinate the three threads without busy-waiting.
+- **Signal Handling** — Registers a `SIGINT` handler (CTRL+C) that sets a shared `stop` flag and broadcasts on all condition variables, ensuring every thread wakes up and exits cleanly.
+- **Memory Management** — All products are dynamically allocated. Memory is freed as soon as a product is processed or rejected, with a final `freeBuffer()` cleanup on shutdown.
+---
+ 
 ## Technical Requirements
-* **Language**: C
-* **Libraries**: `pthread.h`, `stdio.h`, `stdlib.h`, `signal.h`, `unistd.h`, `time.h`
-* **Compiler**: GCC
-
+ 
+- **Language**: C (C99 or later)
+- **Libraries**: `pthread.h`, `stdio.h`, `stdlib.h`, `signal.h`, `unistd.h`, `time.h`
+- **Compiler**: GCC
+---
+ 
 ## File Structure
-* `main.c`: Contains the entry point, thread creation, and interruption signal management.
-* `production.c`: Contains the operational logic of the three threads and the buffer management functions.
-* `production.h`: Defines the `Product` structure and function prototypes.
-* `magazzino.log`: The generated log file containing the production results.
+ 
+```
+.
+├── main.c          # Entry point: thread creation, signal handling, cleanup
+├── production.c    # Thread logic: producer, quality control, log writer, buffer management
+├── production.h    # Shared structs, constants, extern declarations, function prototypes
+└── magazzino.log   # Generated output file (CSV format)
+```
+ 
+---
+ 
+## How to Build and Run
+ 
+```bash
+gcc -o programma main.c production.c -lpthread
+./programma
+```
+ 
+The program runs indefinitely. Press **CTRL+C** to stop it gracefully — all threads will finish their current operation, free their resources, and exit cleanly.
+ 
+---
+ 
+## Output
+ 
+Products that pass quality control are written to `magazzino.log` in CSV format:
+ 
+```
+ID,QUALITY
+0,87
+3,62
+5,91
+...
+```
+ 
+---
+ 
+## Architecture Diagram
+ 
+```
+┌─────────────────┐     notFull / notEmpty      ┌──────────────────────┐
+│  Thread 1       │ ──────────────────────────▶ │  Thread 2            │
+│  Producer       │    Circular Buffer           │  Quality Control     │
+│  (every 2s)     │ ◀────────────────────────── │                      │
+└─────────────────┘                              └──────────────────────┘
+                                                          │
+                                                 validProduct signal
+                                                          │
+                                                          ▼
+                                                 ┌──────────────────────┐
+                                                 │  Thread 3            │
+                                                 │  Log Writer          │
+                                                 │  → magazzino.log     │
+                                                 └──────────────────────┘
+```
